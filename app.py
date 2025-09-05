@@ -5,8 +5,22 @@ from flask import Flask, jsonify, request # Flask-Anwendung, JSON-Antworten und 
 
 # Importiere unsere JsonDataManager-Klasse aus der data_manager.py Datei
 from data_manager import JsonDataManager
+from flask_migrate import Migrate
+from dotenv import load_dotenv
+from models import db
 
 app = Flask(__name__)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
+    "DATABASE_URL",
+    "postgresql+psycopg2://app:app123@localhost:5432/topics_db"
+)
+
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
+Migrate(app, db)
+
 
 # Definieren der Dateipfade für unsere Daten.
 # os.path.dirname(__file__) gibt den Pfad des aktuellen Skripts zurück.
