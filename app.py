@@ -136,102 +136,83 @@ def delete_topic(id):
 # --- SKILL ENDPUNKTE ---
 
 @app.route('/skills', methods=['GET'])
-def get_skills():
-    """
-    Ruft alle verfügbaren Lern-Skills ab.
-    """
-    skills = data_manager.read_data(SKILLS_FILE)
-    return jsonify(skills)
+def list_skills():
+        q = request.args.get("q")
+        topic_id = request.args.get("topicId")
+        try:
+            limit = min(int(request.args.get("limit", 50)), 200)
+            offset = max(int(request.args.get("offset", 0)), 0)
+        except:
+            return jsonify({"error": "limit/offset must be numbers"}), 422
+
+        query = Skill.query
+        if q:
+            query = query.filter(Skill.name.ilike(f"%{q}%"))
+        if topic_id:
+            query = query.filter(Skill.topic_id == topic_id)
+
+        total = query.count()
+        items = query.order_by(Skill.name.asc()).limit(limit).offset(offset).all()
+        return {
+            "data": [s.to_dict() for s in items],
+            "meta": {"total": total, "limit": limit, "offset": offset}
+        }
 
 @app.route('/skills/<id>', methods=['GET'])
-def get_skill_by_id(id):
-    """
-    Ruft einen einzelnen Lern-Skill anhand seiner ID ab.
-    Gibt 404 Not Found zurück, wenn der Skill nicht gefunden wird.
-    """
-    skills = data_manager.read_data(SKILLS_FILE)
-    skill = next((s for s in skills if s['id'] == id), None)
-    if skill:
-        return jsonify(skill)
-    return jsonify({"error": "Skill not found"}), 404
+def get_skill(id):
+        s = Skill.query.get(id)
+        if not s:
+            return jsonify({"error": "Skill not found"}), 404
+        return s.to_dict()
 
 @app.route('/skills', methods=['POST'])
 def create_skill():
-    """
-    Erstellt einen neuen Lern-Skill.
-    Erfordert 'name' und 'topicId' im JSON-Request-Body.
-    Generiert eine eindeutige ID und speichert den Skill.
-    """
-    new_skill_data = request.json
-    if not new_skill_data or 'name' not in new_skill_data or 'topicId' not in new_skill_data:
-        return jsonify({"error": "Name und Topic ID für den Skill sind erforderlich"}), 400
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or "").strip()
+        topic_id = payload.get("topicID") or payload.get("topicId")
+        difficulty = (payload.get("difficulty") or "beginner").strip()
 
-    new_skill_id = str(uuid.uuid4())
-    skill = {
-        "id": new_skill_id,
-        "name": new_skill_data['name'],
-        "topicId": new_skill_data['topicId'],
-        "difficulty": new_skill_data.get('difficulty', 'unknown') # 'difficulty' ist optional
-    }
+        if not name:
+            return jsonify({"error": "Field 'name' is required"}), 422
+        if not topic_id:
+            return jsonify({"error": "Field 'topicID' is required"}), 422
 
-    skills = data_manager.read_data(SKILLS_FILE)
-    skills.append(skill)
-    data_manager.write_data(SKILLS_FILE, skills)
+        if not Topic.query.get(topic_id):
+            return jsonify({"error": "topicID not found"}), 422
 
-    return jsonify(skill), 201
+        s = Skill(name=name, topic_id=topic_id, difficulty=difficulty)
+        db.session.add(s)
+        db.session.commit()
+        return s.to_dict(), 201
 
 @app.route('/skills/<id>', methods=['PUT'])
 def update_skill(id):
-    """
-    Aktualisiert einen bestehenden Lern-Skill anhand seiner ID.
-    Erfordert 'name' und 'topicId' im JSON-Request-Body für die vollständige Aktualisierung.
-    """
-    updated_data = request.json
-    if not updated_data or 'name' not in updated_data or 'topicId' not in updated_data:
-        return jsonify({"error": "Name und Topic ID für den Skill sind erforderlich"}), 400
+        s = Skill.query.get(id)
+        if not s:
+            return jsonify({"error": "Skill not found"}), 404
 
-    skills = data_manager.read_data(SKILLS_FILE)
+        payload = request.get_json(silent=True) or {}
+        name = (payload.get("name") or s.name).strip()
+        topic_id = payload.get("topicID", payload.get("topicId", s.topic_id))
+        difficulty = (payload.get("difficulty") or s.difficulty).strip()
 
-    found_index = -1
-    for i, s in enumerate(skills):
-        if s['id'] == id:
-            found_index = i
-            break
+        if not Topic.query.get(topic_id):
+            return jsonify({"error": "topicID not found"}), 422
 
-    if found_index == -1:
-        return jsonify({"error": "Skill not found"}), 404
-
-    # Aktualisiere die Felder des gefundenen Skills
-    skills[found_index]['name'] = updated_data['name']
-    skills[found_index]['topicId'] = updated_data['topicId']
-    # 'difficulty' wird aktualisiert, wenn im Request vorhanden, sonst bleibt der alte Wert
-    skills[found_index]['difficulty'] = updated_data.get('difficulty', skills[found_index].get('difficulty', 'unknown'))
-
-    data_manager.write_data(SKILLS_FILE, skills)
-
-    return jsonify(skills[found_index]), 200
+        s.name = name
+        s.topic_id = topic_id
+        s.difficulty = difficulty
+        db.session.commit()
+        return s.to_dict()
 
 @app.route('/skills/<id>', methods=['DELETE'])
 def delete_skill(id):
-    """
-    Löscht einen Lern-Skill anhand seiner ID.
-    Gibt 204 No Content zurück, wenn erfolgreich gelöscht.
-    """
-    skills = data_manager.read_data(SKILLS_FILE)
-
-    found_index = -1
-    for i, s in enumerate(skills):
-        if s['id'] == id:
-            found_index = i
-            break
-
-    if found_index == -1:
-        return jsonify({"error": "Skill not found"}), 404
-
-    skills.pop(found_index)
-    data_manager.write_data(SKILLS_FILE, skills)
-
-    return '', 204
+        s = Skill.query.get(id)
+        if not s:
+            return jsonify({"error": "Skill not found"}), 404
+        db.session.delete(s)
+        db.session.commit()
+        return "", 204
 
 if __name__ == '__main__':
     # Startet den Flask-Entwicklungsserver.
